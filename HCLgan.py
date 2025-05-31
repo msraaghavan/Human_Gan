@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 from torchvision.utils import save_image
 
-#Load the data
+# Load the data
 samples_path = "Humans"
 output_images_path = "Generated_Images"
 os.makedirs(output_images_path, exist_ok=True)
@@ -31,7 +31,7 @@ class HumanDataset(Dataset):
         corrupted_files = []
         for root, _, files in os.walk(images_path):
             for file in files:
-                if file.endswith((".jpg", ".png", ".jpeg")):  # Fixed .endsWith to .endswith
+                if file.endswith((".jpg", ".png", ".jpeg")):
                     img_path = os.path.join(root, file)
 
                     try:
@@ -73,7 +73,7 @@ class HumanDataset(Dataset):
 dataset = HumanDataset(samples_path, transform=transform)
 dataloader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=0)
 
-class Generator(nn.Module):#generator architecture
+class Generator(nn.Module):
     def __init__(self, latent_dim=100, ngf=64):
         super(Generator, self).__init__()
         self.model = nn.Sequential(
@@ -143,6 +143,10 @@ optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5
 
 criterion = nn.BCELoss()
 
+# Latent consistency loss (L1 or L2)
+def latent_consistency_loss(fake1, fake2):
+    return torch.mean(torch.abs(fake1 - fake2))
+
 num_epochs = 50
 fixed_noise = torch.randn(64, latent_dim, 1, 1, device=device)
 
@@ -156,6 +160,7 @@ for epoch in range(num_epochs):
         batch = batch.to(device)
         batch_size = batch.size(0)
 
+        # Train Discriminator
         optimizer_D.zero_grad()
         real_labels = torch.full((batch_size, 1), 1.0, device=device)
         output = discriminator(batch)
@@ -174,9 +179,19 @@ for epoch in range(num_epochs):
         loss_D = loss_D_real + loss_D_fake
         optimizer_D.step()
 
+        # Train Generator
         optimizer_G.zero_grad()
         output = discriminator(fake_images)
-        loss_G = criterion(output, real_labels)
+        loss_G_adv = criterion(output, real_labels)
+
+        # Latent Consistency Loss
+        noise2 = noise + 0.1 * torch.randn_like(noise)  # Add small noise to the latent vector
+        fake_images2 = generator(noise2)
+        loss_G_latent = latent_consistency_loss(fake_images, fake_images2)
+
+        # Hybrid Loss
+        lambda_latent = 0.1  # Weight for latent consistency loss
+        loss_G = loss_G_adv + lambda_latent * loss_G_latent
         loss_G.backward()
         D_G_z2 = output.mean().item()
         optimizer_G.step()
